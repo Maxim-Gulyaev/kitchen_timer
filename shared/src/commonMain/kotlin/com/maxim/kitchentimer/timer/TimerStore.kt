@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlin.time.TimeSource
 
 fun interface MonotonicClock {
     fun nowMillis(): Long
@@ -20,6 +22,24 @@ fun interface MonotonicClock {
 /** A ticker implementation must not fail except through coroutine cancellation. */
 fun interface TimerTicker {
     suspend fun awaitTick()
+}
+
+class DefaultMonotonicClock : MonotonicClock {
+    private val origin = TimeSource.Monotonic.markNow()
+
+    override fun nowMillis(): Long = origin.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L)
+}
+
+class CoroutineTimerTicker(
+    private val intervalMillis: Long = 500L,
+) : TimerTicker {
+    init {
+        require(intervalMillis > 0L) { "Ticker interval must be positive" }
+    }
+
+    override suspend fun awaitTick() {
+        delay(intervalMillis)
+    }
 }
 
 /**

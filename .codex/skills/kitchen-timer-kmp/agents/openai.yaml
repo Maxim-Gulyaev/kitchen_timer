@@ -1,0 +1,7 @@
+interface:
+  display_name: "KitchenTimer KMP"
+  short_description: "KMP timer app workflow and architecture"
+  default_prompt: "Use $kitchen-timer-kmp to implement the next KitchenTimer feature cleanly."
+
+policy:
+  allow_implicit_invocation: true

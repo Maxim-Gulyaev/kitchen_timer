@@ -1,5 +1,6 @@
 package com.maxim.kitchentimer.timer
 
+import com.maxim.kitchentimer.platform.MonotonicClock
 import kotlinx.coroutines.async
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
@@ -109,6 +110,8 @@ class TimerStoreTest {
     @Test
     fun missedTicksReconcilePastZeroAndEmitCompletionOnce() = runTest {
         val harness = harness(TimerState(initialDuration = 5.seconds))
+        val firstEvent = async { harness.store.events.first() }
+        runCurrent()
 
         harness.store.dispatch(TimerIntent.Start)
         runCurrent()
@@ -118,7 +121,7 @@ class TimerStoreTest {
 
         assertEquals(TimerStatus.Finished, harness.store.state.value.status)
         assertEquals(0.seconds, harness.store.state.value.remainingDuration)
-        assertEquals(TimerEvent.Completed, harness.store.events.first())
+        assertEquals(TimerEvent.Completed, firstEvent.await())
         assertEquals(0, harness.ticker.activeAwaiters)
 
         val unexpectedEvent = async { harness.store.events.first() }

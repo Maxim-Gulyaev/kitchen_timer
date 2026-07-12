@@ -1,33 +1,27 @@
 package com.maxim.kitchentimer.timer
 
+import com.maxim.kitchentimer.platform.MonotonicClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
-import kotlin.time.TimeSource
-
-fun interface MonotonicClock {
-    fun nowMillis(): Long
-}
 
 /** A ticker implementation must not fail except through coroutine cancellation. */
 fun interface TimerTicker {
     suspend fun awaitTick()
-}
-
-class DefaultMonotonicClock : MonotonicClock {
-    private val origin = TimeSource.Monotonic.markNow()
-
-    override fun nowMillis(): Long = origin.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L)
 }
 
 class CoroutineTimerTicker(
@@ -44,7 +38,7 @@ class CoroutineTimerTicker(
 
 /**
  * Common state holder that serializes user intents and ticker updates.
- * Platform effects consume [events]; they do not belong in this store or reducer.
+ * Public observers may collect [events]; ordered platform effects are coordinated separately.
  */
 class TimerStore(
     clock: MonotonicClock,
@@ -55,12 +49,17 @@ class TimerStore(
     private val storeJob = SupervisorJob(coroutineScope.coroutineContext[Job])
     private val scope = CoroutineScope(coroutineScope.coroutineContext + storeJob)
     private val intents = Channel<TimerIntent>(Channel.UNLIMITED)
-    private val eventChannel = Channel<TimerEvent>(Channel.UNLIMITED)
+    private val mutableEvents = MutableSharedFlow<TimerEvent>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    private val transitionChannel = Channel<TimerEffectTransition>(Channel.UNLIMITED)
 
     private val mutableState = MutableStateFlow(initialState)
     val state: StateFlow<TimerState> = mutableState.asStateFlow()
 
-    val events: Flow<TimerEvent> = eventChannel.receiveAsFlow()
+    val events: SharedFlow<TimerEvent> = mutableEvents.asSharedFlow()
+    internal val transitions: Flow<TimerEffectTransition> = transitionChannel.receiveAsFlow()
 
     private var tickerJob: Job? = null
 
@@ -71,13 +70,17 @@ class TimerStore(
 
         scope.launch {
             for (intent in intents) {
+                val previousState = mutableState.value
                 val transition = TimerReducer.reduce(
-                    state = mutableState.value,
+                    state = previousState,
                     intent = intent,
                     nowMillis = clock.nowMillis(),
                 )
                 mutableState.value = transition.state
-                transition.event?.let { eventChannel.send(it) }
+                transition.event?.let { mutableEvents.emit(it) }
+                if (previousState.status != transition.state.status || transition.event != null) {
+                    transitionChannel.send(TimerEffectTransition(previousState, transition))
+                }
                 syncTicker(transition.state.status, ticker)
             }
         }
@@ -88,7 +91,7 @@ class TimerStore(
 
     fun close() {
         intents.close()
-        eventChannel.close()
+        transitionChannel.close()
         scope.cancel()
     }
 
@@ -108,3 +111,8 @@ class TimerStore(
         }
     }
 }
+
+internal data class TimerEffectTransition(
+    val previousState: TimerState,
+    val transition: TimerTransition,
+)

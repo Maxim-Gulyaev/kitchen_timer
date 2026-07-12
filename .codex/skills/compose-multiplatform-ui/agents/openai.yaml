@@ -1,0 +1,4 @@
+interface:
+  display_name: "Compose Multiplatform UI"
+  short_description: "Polish Compose MPP timer UI"
+  default_prompt: "Use $compose-multiplatform-ui to review a KitchenTimer Compose screen."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project RTK Workflow"
+  short_description: "Keep KitchenTimer inspections compact"
+  default_prompt: "Use $project-rtk-workflow to inspect KitchenTimer with compact command output."

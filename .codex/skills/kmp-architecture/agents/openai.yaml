@@ -1,0 +1,4 @@
+interface:
+  display_name: "KMP Architecture"
+  short_description: "Guide KMP architecture decisions"
+  default_prompt: "Use $kmp-architecture to review a KitchenTimer architecture change."

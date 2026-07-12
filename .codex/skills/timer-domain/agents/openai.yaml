@@ -1,0 +1,4 @@
+interface:
+  display_name: "Timer Domain"
+  short_description: "Design timer state semantics"
+  default_prompt: "Use $timer-domain to design KitchenTimer countdown behavior."

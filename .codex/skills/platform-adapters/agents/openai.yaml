@@ -1,0 +1,4 @@
+interface:
+  display_name: "Platform Adapters"
+  short_description: "Build Android and iOS adapters"
+  default_prompt: "Use $platform-adapters to add a KitchenTimer platform adapter."

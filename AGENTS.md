@@ -17,8 +17,10 @@ Communicate with the user in Russian. Use normal engineering language and IT ter
 - `androidApp/` is the Android entry point and should stay thin.
 - `iosApp/` is the SwiftUI/Xcode entry point and should stay thin.
 - `gradle/libs.versions.toml` owns dependency and plugin versions.
-- `.agents/` contains project-specific subagent prompts.
-- `.codex/skills/kitchen-timer-kmp/` contains the local project skill.
+- `.codex/subagents.toml` contains the local Codex runtime subagent registry with prompt/model guidance.
+- `.codex/subagents/` contains one TOML preset per subagent.
+- `.codex/skills/kitchen-timer-kmp/` contains the umbrella local project skill.
+- `.codex/skills/` also contains focused skills for KMP architecture, Compose UI, timer domain logic, Gradle/build work, platform adapters, KMP testing, and compact RTK-style inspection.
 
 ## Common Commands
 
@@ -59,8 +61,20 @@ Use the Gradle wrapper. Do not assume a system Gradle install.
 
 ## Agent Workflow
 
-- For architecture questions, use `.agents/kmp-architect.md`.
-- For Compose UI polish/review, use `.agents/compose-ui-reviewer.md`.
-- For Gradle/build failures, use `.agents/gradle-build-doctor.md`.
-- For timer behavior and edge cases, use `.agents/timer-domain-reviewer.md`.
+- For subagent delegation, use Codex runtime agents (`explorer`, `worker`, or `default`) and the presets in `.codex/subagents.toml`.
+- For architecture questions, use `.codex/subagents/kmp-architect.toml`.
+- For Compose UI polish/review, use `.codex/subagents/compose-ui-reviewer.toml`.
+- For Gradle/build failures, use `.codex/subagents/gradle-build-doctor.toml`.
+- For timer behavior and edge cases, use `.codex/subagents/timer-domain-reviewer.toml`.
+- For platform behavior and adapters, use `.codex/subagents/platform-integration-agent.toml`.
+- For test planning and regression coverage, use `.codex/subagents/test-strategy-agent.toml`.
+- For scoped implementation work, use `.codex/subagents/feature-worker.toml`.
+- For repository discovery, use `.codex/subagents/repo-explorer.toml`.
 - For feature implementation in this app, load `$kitchen-timer-kmp` from `.codex/skills/kitchen-timer-kmp`.
+- For architecture/source-set decisions, load `$kmp-architecture`.
+- For Compose Multiplatform UI work, load `$compose-multiplatform-ui`.
+- For timer countdown semantics and state transitions, load `$timer-domain`.
+- For Gradle/KMP build issues, load `$kmp-gradle-build`.
+- For Android/iOS side effects and service contracts, load `$platform-adapters`.
+- For deterministic common tests and fake time, load `$kmp-testing`.
+- For compact repository inspection, load `$project-rtk-workflow` or the global `$rtk-token-saver`.

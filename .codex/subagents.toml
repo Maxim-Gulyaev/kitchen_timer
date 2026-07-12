@@ -1,0 +1,66 @@
+# KitchenTimer local subagent registry.
+#
+# These presets are intentionally project-local and declarative. They document
+# which runtime role, model, and prompt should be used when delegating work on
+# this Kotlin Multiplatform kitchen timer app.
+
+version = 1
+project = "KitchenTimer"
+default_language = "ru"
+default_model = "gpt-5.6"
+
+[[subagents]]
+id = "kmp-architect"
+name = "KMP Architect"
+file = ".codex/subagents/kmp-architect.toml"
+model = "gpt-5.6"
+runtime_agent = "default"
+
+[[subagents]]
+id = "timer-domain-reviewer"
+name = "Timer Domain Reviewer"
+file = ".codex/subagents/timer-domain-reviewer.toml"
+model = "gpt-5.6"
+runtime_agent = "default"
+
+[[subagents]]
+id = "compose-ui-reviewer"
+name = "Compose UI Reviewer"
+file = ".codex/subagents/compose-ui-reviewer.toml"
+model = "gpt-5.6"
+runtime_agent = "default"
+
+[[subagents]]
+id = "gradle-build-doctor"
+name = "Gradle Build Doctor"
+file = ".codex/subagents/gradle-build-doctor.toml"
+model = "gpt-5.6"
+runtime_agent = "default"
+
+[[subagents]]
+id = "platform-integration-agent"
+name = "Platform Integration Agent"
+file = ".codex/subagents/platform-integration-agent.toml"
+model = "gpt-5.6"
+runtime_agent = "worker"
+
+[[subagents]]
+id = "test-strategy-agent"
+name = "Test Strategy Agent"
+file = ".codex/subagents/test-strategy-agent.toml"
+model = "gpt-5.6"
+runtime_agent = "default"
+
+[[subagents]]
+id = "feature-worker"
+name = "Feature Worker"
+file = ".codex/subagents/feature-worker.toml"
+model = "gpt-5.6"
+runtime_agent = "worker"
+
+[[subagents]]
+id = "repo-explorer"
+name = "Repo Explorer"
+file = ".codex/subagents/repo-explorer.toml"
+model = "gpt-5.6"
+runtime_agent = "explorer"

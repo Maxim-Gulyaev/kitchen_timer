@@ -1,0 +1,4 @@
+interface:
+  display_name: "KMP Testing"
+  short_description: "Plan deterministic KMP tests"
+  default_prompt: "Use $kmp-testing to add focused KitchenTimer tests."

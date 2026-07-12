@@ -1,0 +1,4 @@
+interface:
+  display_name: "KMP Gradle Build"
+  short_description: "Diagnose KMP Gradle builds"
+  default_prompt: "Use $kmp-gradle-build to diagnose a KitchenTimer Gradle failure."

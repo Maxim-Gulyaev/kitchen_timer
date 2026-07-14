@@ -227,6 +227,93 @@ class TimerCoordinatorTest {
     }
 
     @Test
+    fun acceptanceFlowPreservesDurationAcrossPauseBackgroundDismissStartAgainAndReset() = runTest {
+        val harness = harness(TimerState())
+        harness.coordinator.dispatch(TimerIntent.ChangeDuration(10.seconds))
+        harness.coordinator.dispatch(TimerIntent.Start)
+        runCurrent()
+
+        harness.clock.advanceBy(2.seconds)
+        harness.coordinator.dispatch(TimerIntent.Pause)
+        harness.coordinator.dispatch(TimerIntent.Resume)
+        runCurrent()
+        harness.clock.advanceBy(3.seconds)
+        harness.coordinator.dispatch(TimerIntent.Pause)
+        harness.coordinator.dispatch(TimerIntent.Resume)
+        runCurrent()
+
+        harness.lifecycle.setForeground(false)
+        runCurrent()
+        harness.clock.advanceBy(5.seconds)
+        harness.lifecycle.setForeground(true)
+        runCurrent()
+
+        assertEquals(TimerStatus.Finished, harness.coordinator.state.value.status)
+        assertEquals(1, harness.sound.playCount)
+        assertEquals(1, harness.haptics.completionCount)
+
+        harness.coordinator.dispatch(TimerIntent.Stop)
+        harness.coordinator.dispatch(TimerIntent.Start)
+        runCurrent()
+        assertEquals(TimerStatus.Running, harness.coordinator.state.value.status)
+        assertEquals(10.seconds, harness.coordinator.state.value.remainingDuration)
+
+        harness.coordinator.dispatch(TimerIntent.Reset)
+        runCurrent()
+        assertEquals(TimerStatus.Idle, harness.coordinator.state.value.status)
+        assertEquals(10.seconds, harness.coordinator.state.value.remainingDuration)
+        assertEquals(1, harness.sound.stopCount)
+        harness.close()
+    }
+
+    @Test
+    fun deniedNotificationsDoNotBlockBackgroundCompletionOrFurtherActions() = runTest {
+        val clock = FakeClock()
+        val ticker = ManualTicker()
+        val sound = RecordingSoundPlayer()
+        val haptics = RecordingHaptics()
+        val lifecycle = FakeLifecycleObserver(true)
+        val store = TimerStore(clock, ticker, backgroundScope, TimerState(initialDuration = 5.seconds))
+        val coordinator = TimerCoordinator(
+            store = store,
+            services = TimerPlatformServices(
+                clock = clock,
+                soundPlayer = sound,
+                haptics = haptics,
+                notifier = object : TimerNotifier {
+                    override fun scheduleCompletion(after: Duration): Nothing =
+                        error("Notification permission denied")
+
+                    override fun cancelCompletion(): Nothing =
+                        error("Notification permission denied")
+                },
+                lifecycle = lifecycle,
+            ),
+            coroutineScope = backgroundScope,
+        )
+
+        coordinator.dispatch(TimerIntent.Start)
+        runCurrent()
+        lifecycle.setForeground(false)
+        runCurrent()
+        clock.advanceBy(5.seconds)
+        lifecycle.setForeground(true)
+        runCurrent()
+
+        assertEquals(TimerStatus.Finished, coordinator.state.value.status)
+        assertEquals(1, sound.playCount)
+        assertEquals(1, haptics.completionCount)
+
+        coordinator.dispatch(TimerIntent.Stop)
+        coordinator.dispatch(TimerIntent.Start)
+        coordinator.dispatch(TimerIntent.Reset)
+        runCurrent()
+        assertEquals(TimerStatus.Idle, coordinator.state.value.status)
+        coordinator.close()
+        store.close()
+    }
+
+    @Test
     fun coordinatorAttachedAfterStartStillSchedulesNotification() = runTest {
         val clock = FakeClock()
         val ticker = ManualTicker()

@@ -114,16 +114,29 @@ class AndroidTimerNotifier(context: Context) : TimerNotifier {
     override fun scheduleCompletion(after: Duration) {
         val triggerAt = SystemClock.elapsedRealtime() + after.inWholeMilliseconds.coerceAtLeast(0L)
         alarmManager.cancel(alarmIntent)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-            return
+        val canScheduleExact =
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+
+        if (canScheduleExact) {
+            try {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    triggerAt,
+                    alarmIntent,
+                )
+                return
+            } catch (_: SecurityException) {
+                // Exact alarm access can be revoked between the capability check and scheduling.
+            }
         }
-        try {
-            alarmManager.setExactAndAllowWhileIdle(
+
+        runCatching {
+            alarmManager.setAndAllowWhileIdle(
                 AlarmManager.ELAPSED_REALTIME_WAKEUP,
                 triggerAt,
                 alarmIntent,
             )
-        } catch (_: SecurityException) { /* Exact alarm access can be revoked at any time. */ }
+        }
     }
 
     override fun cancelCompletion() {

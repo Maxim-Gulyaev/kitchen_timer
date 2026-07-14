@@ -22,13 +22,16 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import com.maxim.kitchentimer.timer.TimerIntent
 import com.maxim.kitchentimer.timer.TimerPresets
 import com.maxim.kitchentimer.timer.TimerState
@@ -194,6 +197,9 @@ fun TimerScreen(
 private fun TimerStatusBadge(status: TimerStatus) {
     val finished = status == TimerStatus.Finished
     Surface(
+        modifier = Modifier.semantics {
+            liveRegion = if (finished) LiveRegionMode.Assertive else LiveRegionMode.Polite
+        },
         color = if (finished) {
             MaterialTheme.colorScheme.errorContainer
         } else {

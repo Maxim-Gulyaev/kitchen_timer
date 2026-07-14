@@ -11,6 +11,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 
 /**
@@ -29,12 +30,26 @@ class TimerCoordinator(
     val state: StateFlow<TimerState> = store.state
 
     init {
+        store.setTickerEnabled(services.lifecycle.isForeground.value)
         scope.launch {
             store.transitions.collect { effectTransition ->
                 val transition = effectTransition.transition
                 applyStateEffects(effectTransition.previousState, transition.state)
                 transition.event?.let(::applyEventEffects)
             }
+        }
+        scope.launch {
+            services.lifecycle.isForeground
+                .drop(1)
+                .collect { isForeground ->
+                    if (isForeground) {
+                        safely(services.notifier::cancelCompletion)
+                        store.setTickerEnabled(true)
+                        store.dispatch(TimerIntent.Tick)
+                    } else {
+                        store.setTickerEnabled(false)
+                    }
+                }
         }
     }
 

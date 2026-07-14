@@ -146,13 +146,32 @@ class TimerCoordinatorTest {
         harness.coordinator.dispatch(TimerIntent.Start)
         runCurrent()
         harness.clock.advanceBy(5.seconds)
-        harness.ticker.tick()
         runCurrent()
 
-        assertEquals(TimerStatus.Finished, harness.coordinator.state.value.status)
+        assertEquals(TimerStatus.Running, harness.coordinator.state.value.status)
         assertEquals(listOf(5.seconds), harness.notifier.scheduledAfter)
         assertEquals(0, harness.sound.playCount)
         assertEquals(0, harness.haptics.completionCount)
+        harness.close()
+    }
+
+    @Test
+    fun returningToForegroundImmediatelyReconcilesElapsedTime() = runTest {
+        val harness = harness(
+            initialState = TimerState(initialDuration = 5.seconds),
+            isForeground = false,
+        )
+        harness.coordinator.dispatch(TimerIntent.Start)
+        runCurrent()
+        harness.clock.advanceBy(30.seconds)
+
+        harness.lifecycle.setForeground(true)
+        runCurrent()
+
+        assertEquals(TimerStatus.Finished, harness.coordinator.state.value.status)
+        assertEquals(1, harness.sound.playCount)
+        assertEquals(1, harness.haptics.completionCount)
+        assertEquals(1, harness.notifier.cancelCount)
         harness.close()
     }
 
@@ -208,13 +227,17 @@ class TimerCoordinatorTest {
             services = TimerPlatformServices(clock, sound, haptics, notifier, lifecycle),
             coroutineScope = backgroundScope,
         )
-        return CoordinatorHarness(store, coordinator, clock, ticker, sound, haptics, notifier)
+        return CoordinatorHarness(store, coordinator, clock, ticker, sound, haptics, notifier, lifecycle)
     }
 }
 
 private class FakeLifecycleObserver(isForeground: Boolean) : AppLifecycleObserver {
     private val foreground = MutableStateFlow(isForeground)
     override val isForeground: StateFlow<Boolean> = foreground.asStateFlow()
+
+    fun setForeground(value: Boolean) {
+        foreground.value = value
+    }
 }
 
 private data class CoordinatorHarness(
@@ -225,6 +248,7 @@ private data class CoordinatorHarness(
     val sound: RecordingSoundPlayer,
     val haptics: RecordingHaptics,
     val notifier: RecordingNotifier,
+    val lifecycle: FakeLifecycleObserver,
 ) {
     fun close() {
         coordinator.close()

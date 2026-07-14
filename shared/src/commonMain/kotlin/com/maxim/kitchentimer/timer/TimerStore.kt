@@ -48,7 +48,7 @@ class TimerStore(
 ) {
     private val storeJob = SupervisorJob(coroutineScope.coroutineContext[Job])
     private val scope = CoroutineScope(coroutineScope.coroutineContext + storeJob)
-    private val intents = Channel<TimerIntent>(Channel.UNLIMITED)
+    private val commands = Channel<TimerStoreCommand>(Channel.UNLIMITED)
     private val mutableEvents = MutableSharedFlow<TimerEvent>(
         extraBufferCapacity = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
@@ -62,6 +62,7 @@ class TimerStore(
     internal val transitions: Flow<TimerEffectTransition> = transitionChannel.receiveAsFlow()
 
     private var tickerJob: Job? = null
+    private var tickerEnabled = true
 
     init {
         require(initialState.status != TimerStatus.Running) {
@@ -69,7 +70,13 @@ class TimerStore(
         }
 
         scope.launch {
-            for (intent in intents) {
+            for (command in commands) {
+                if (command is TimerStoreCommand.TickerEnabled) {
+                    tickerEnabled = command.enabled
+                    syncTicker(mutableState.value.status, ticker)
+                    continue
+                }
+                val intent = (command as TimerStoreCommand.Intent).intent
                 val previousState = mutableState.value
                 val transition = TimerReducer.reduce(
                     state = previousState,
@@ -87,16 +94,21 @@ class TimerStore(
     }
 
     /** Enqueues an intent for ordered processing. Returns false after [close]. */
-    fun dispatch(intent: TimerIntent): Boolean = intents.trySend(intent).isSuccess
+    fun dispatch(intent: TimerIntent): Boolean =
+        commands.trySend(TimerStoreCommand.Intent(intent)).isSuccess
+
+    internal fun setTickerEnabled(enabled: Boolean) {
+        commands.trySend(TimerStoreCommand.TickerEnabled(enabled))
+    }
 
     fun close() {
-        intents.close()
+        commands.close()
         transitionChannel.close()
         scope.cancel()
     }
 
     private fun syncTicker(status: TimerStatus, ticker: TimerTicker) {
-        if (status != TimerStatus.Running) {
+        if (status != TimerStatus.Running || !tickerEnabled) {
             tickerJob?.cancel()
             tickerJob = null
             return
@@ -106,7 +118,7 @@ class TimerStore(
         tickerJob = scope.launch {
             while (isActive) {
                 ticker.awaitTick()
-                intents.send(TimerIntent.Tick)
+                commands.send(TimerStoreCommand.Intent(TimerIntent.Tick))
             }
         }
     }
@@ -116,3 +128,8 @@ internal data class TimerEffectTransition(
     val previousState: TimerState,
     val transition: TimerTransition,
 )
+
+private sealed interface TimerStoreCommand {
+    data class Intent(val intent: TimerIntent) : TimerStoreCommand
+    data class TickerEnabled(val enabled: Boolean) : TimerStoreCommand
+}

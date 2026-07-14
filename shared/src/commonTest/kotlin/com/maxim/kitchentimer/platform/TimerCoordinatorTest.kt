@@ -156,6 +156,22 @@ class TimerCoordinatorTest {
     }
 
     @Test
+    fun enteringBackgroundReschedulesNotificationFromDeadlineNotStaleUiState() = runTest {
+        val harness = harness(TimerState(initialDuration = 1.minutes))
+        harness.coordinator.dispatch(TimerIntent.Start)
+        runCurrent()
+        harness.clock.advanceBy(20.seconds)
+
+        harness.lifecycle.setForeground(false)
+        runCurrent()
+
+        assertEquals(TimerStatus.Running, harness.coordinator.state.value.status)
+        assertEquals(1.minutes, harness.coordinator.state.value.remainingDuration)
+        assertEquals(listOf(1.minutes, 40.seconds), harness.notifier.scheduledAfter)
+        harness.close()
+    }
+
+    @Test
     fun returningToForegroundImmediatelyReconcilesElapsedTime() = runTest {
         val harness = harness(
             initialState = TimerState(initialDuration = 5.seconds),
@@ -172,6 +188,41 @@ class TimerCoordinatorTest {
         assertEquals(1, harness.sound.playCount)
         assertEquals(1, harness.haptics.completionCount)
         assertEquals(1, harness.notifier.cancelCount)
+        harness.close()
+    }
+
+    @Test
+    fun elapsedDeadlineCompletesOnlyOnceAcrossRepeatedLifecycleTransitions() = runTest {
+        val harness = harness(TimerState(initialDuration = 5.seconds))
+        harness.coordinator.dispatch(TimerIntent.Start)
+        runCurrent()
+        harness.lifecycle.setForeground(false)
+        runCurrent()
+        harness.clock.advanceBy(30.seconds)
+
+        harness.lifecycle.setForeground(true)
+        runCurrent()
+        harness.lifecycle.setForeground(false)
+        harness.lifecycle.setForeground(true)
+        harness.coordinator.dispatch(TimerIntent.Tick)
+        runCurrent()
+
+        assertEquals(TimerStatus.Finished, harness.coordinator.state.value.status)
+        assertEquals(1, harness.sound.playCount)
+        assertEquals(1, harness.haptics.completionCount)
+        harness.close()
+    }
+
+    @Test
+    fun lifecycleChangeBeforeCollectorsStartIsNotDropped() = runTest {
+        val harness = harness(TimerState(initialDuration = 1.minutes))
+        harness.coordinator.dispatch(TimerIntent.Start)
+        harness.lifecycle.setForeground(false)
+
+        runCurrent()
+
+        assertEquals(TimerStatus.Running, harness.coordinator.state.value.status)
+        assertEquals(listOf(1.minutes), harness.notifier.scheduledAfter)
         harness.close()
     }
 

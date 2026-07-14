@@ -11,8 +11,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Connects ordered timer transitions to platform side effects.
@@ -26,11 +26,14 @@ class TimerCoordinator(
     private val coordinatorJob = SupervisorJob(coroutineScope.coroutineContext[Job])
     private val scope = CoroutineScope(coroutineScope.coroutineContext + coordinatorJob)
     private var closed = false
+    private var scheduledDeadlineMillis: Long? = null
+    private var notificationScheduledAtMillis: Long? = null
 
     val state: StateFlow<TimerState> = store.state
 
     init {
-        store.setTickerEnabled(services.lifecycle.isForeground.value)
+        var lastForeground = services.lifecycle.isForeground.value
+        store.setTickerEnabled(lastForeground)
         scope.launch {
             store.transitions.collect { effectTransition ->
                 val transition = effectTransition.transition
@@ -40,15 +43,10 @@ class TimerCoordinator(
         }
         scope.launch {
             services.lifecycle.isForeground
-                .drop(1)
                 .collect { isForeground ->
-                    if (isForeground) {
-                        safely(services.notifier::cancelCompletion)
-                        store.setTickerEnabled(true)
-                        store.dispatch(TimerIntent.Tick)
-                    } else {
-                        store.setTickerEnabled(false)
-                    }
+                    if (isForeground == lastForeground) return@collect
+                    lastForeground = isForeground
+                    handleLifecycleChange(isForeground)
                 }
         }
     }
@@ -60,7 +58,7 @@ class TimerCoordinator(
         closed = true
         scope.cancel()
         safely(services.soundPlayer::stop)
-        safely(services.notifier::cancelCompletion)
+        cancelCompletionNotification()
     }
 
     private fun applyStateEffects(previous: TimerState, current: TimerState) {
@@ -69,18 +67,18 @@ class TimerCoordinator(
         }
 
         if (previous.status != TimerStatus.Running && current.status == TimerStatus.Running) {
-            safely { services.notifier.scheduleCompletion(current.remainingDuration) }
+            scheduleCompletionAtDeadline(current)
         }
 
         if (previous.status == TimerStatus.Running && current.status == TimerStatus.Paused) {
-            safely(services.notifier::cancelCompletion)
+            cancelCompletionNotification()
         }
 
         if (
             previous.status in setOf(TimerStatus.Running, TimerStatus.Paused, TimerStatus.Finished) &&
             current.status == TimerStatus.Idle
         ) {
-            safely(services.notifier::cancelCompletion)
+            cancelCompletionNotification()
         }
     }
 
@@ -93,6 +91,44 @@ class TimerCoordinator(
                 }
             }
         }
+    }
+
+    private fun handleLifecycleChange(isForeground: Boolean) {
+        if (isForeground) {
+            // Reconciliation is ordered before ticker restart, so a UI tick can never be the
+            // source of truth after returning from background.
+            store.setTickerEnabled(false)
+            cancelCompletionNotification()
+            store.dispatch(TimerIntent.Tick)
+            store.setTickerEnabled(true)
+        } else {
+            store.setTickerEnabled(false)
+            scheduleCompletionAtDeadline(store.state.value)
+        }
+    }
+
+    private fun scheduleCompletionAtDeadline(state: TimerState) {
+        if (state.status != TimerStatus.Running) return
+        val deadlineMillis = requireNotNull(state.deadlineMillis)
+        val nowMillis = services.clock.nowMillis()
+        if (
+            scheduledDeadlineMillis == deadlineMillis &&
+            notificationScheduledAtMillis == nowMillis
+        ) {
+            return
+        }
+        val remainingMillis = (deadlineMillis - nowMillis).coerceAtLeast(0L)
+        runCatching { services.notifier.scheduleCompletion(remainingMillis.milliseconds) }
+            .onSuccess {
+                scheduledDeadlineMillis = deadlineMillis
+                notificationScheduledAtMillis = nowMillis
+            }
+    }
+
+    private fun cancelCompletionNotification() {
+        safely(services.notifier::cancelCompletion)
+        scheduledDeadlineMillis = null
+        notificationScheduledAtMillis = null
     }
 
     private inline fun safely(effect: () -> Unit) {

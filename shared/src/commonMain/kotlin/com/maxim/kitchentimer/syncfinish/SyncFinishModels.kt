@@ -93,6 +93,10 @@ sealed interface SyncFinishIntent {
     ) : SyncFinishIntent
 
     data class ChangeServeAfter(val duration: Duration) : SyncFinishIntent
+    data class ReplaceDraft(
+        val components: List<CookingComponent>,
+        val serveAfter: Duration,
+    ) : SyncFinishIntent
     data object UseMinimumServeTime : SyncFinishIntent
     data object Start : SyncFinishIntent
     data object Tick : SyncFinishIntent

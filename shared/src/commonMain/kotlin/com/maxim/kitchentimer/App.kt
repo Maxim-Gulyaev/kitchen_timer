@@ -15,24 +15,33 @@ import com.maxim.kitchentimer.timer.TimerIntent
 import com.maxim.kitchentimer.syncfinish.SyncFinishController
 import com.maxim.kitchentimer.syncfinish.SyncFinishIntent
 import com.maxim.kitchentimer.syncfinish.SyncFinishStatus
+import com.maxim.kitchentimer.syncfinish.persistence.CookingPlanRepository
+import com.maxim.kitchentimer.syncfinish.persistence.InMemoryCookingPlanRepository
 import com.maxim.kitchentimer.ui.TimerScreen
 import com.maxim.kitchentimer.ui.SettingsScreen
 import com.maxim.kitchentimer.ui.syncfinish.SyncFinishEditorScreen
 import com.maxim.kitchentimer.ui.syncfinish.SyncFinishRunningScreen
+import com.maxim.kitchentimer.ui.syncfinish.SavedPlansScreen
 import com.maxim.kitchentimer.ui.theme.KitchenTimerTheme
 
 @Composable
 @Preview
-fun App(platformServices: TimerPlatformServices? = null) {
+fun App(
+    platformServices: TimerPlatformServices? = null,
+    plansRepository: CookingPlanRepository? = null,
+) {
     val scope = rememberCoroutineScope()
     val services = remember(platformServices) {
         platformServices ?: TimerPlatformServices()
     }
+    val resolvedPlansRepository = remember(plansRepository) {
+        plansRepository ?: InMemoryCookingPlanRepository()
+    }
     val timerController = remember(scope, services) {
         TimerController(services, scope)
     }
-    val syncFinishController = remember(scope, services) {
-        SyncFinishController(services, scope)
+    val syncFinishController = remember(scope, services, resolvedPlansRepository) {
+        SyncFinishController(services, scope, resolvedPlansRepository)
     }
     DisposableEffect(timerController, syncFinishController) {
         onDispose {
@@ -54,6 +63,7 @@ fun App(
     KitchenTimerTheme {
         val state by controller.state.collectAsState()
         val syncFinishState by syncFinishController.state.collectAsState()
+        val savedPlansState by syncFinishController.savedPlansState.collectAsState()
         val selectedSound by controller.selectedSound.collectAsState()
         var currentScreen by remember { mutableStateOf(AppScreen.Timer) }
 
@@ -62,7 +72,7 @@ fun App(
                 state = state,
                 onIntent = onIntent,
                 onOpenSettings = { currentScreen = AppScreen.Settings },
-                onOpenSyncFinish = { currentScreen = AppScreen.SyncFinish },
+                onOpenSyncFinish = { currentScreen = AppScreen.SyncFinishLibrary },
             )
 
             AppScreen.Settings -> SettingsScreen(
@@ -74,17 +84,47 @@ fun App(
                 onStopPreview = controller::stopSoundPreview,
             )
 
-            AppScreen.SyncFinish -> {
+            AppScreen.SyncFinishLibrary -> SavedPlansScreen(
+                state = savedPlansState,
+                onBack = { currentScreen = AppScreen.Timer },
+                onNewPlan = {
+                    syncFinishController.newPlan()
+                    currentScreen = AppScreen.SyncFinishEditor
+                },
+                onOpenPlan = { id ->
+                    syncFinishController.loadSavedPlan(id)
+                    currentScreen = AppScreen.SyncFinishEditor
+                },
+                onRenamePlan = syncFinishController::renameSavedPlan,
+                onDuplicatePlan = syncFinishController::duplicateSavedPlan,
+                onDeletePlan = syncFinishController::deleteSavedPlan,
+                onDismissError = syncFinishController::clearSavedPlansError,
+            )
+
+            AppScreen.SyncFinishEditor -> {
                 if (syncFinishState.status == SyncFinishStatus.Draft) {
                     SyncFinishEditorScreen(
                         state = syncFinishState,
                         onIntent = onSyncFinishIntent,
-                        onBack = { currentScreen = AppScreen.Timer },
+                        onBack = { currentScreen = AppScreen.SyncFinishLibrary },
+                        openedPlanName = savedPlansState.openedPlan?.name,
+                        isDirty = savedPlansState.isDirty(syncFinishState),
+                        isBusy = savedPlansState.isBusy,
+                        persistenceError = savedPlansState.errorMessage,
+                        onSavePlan = syncFinishController::saveCurrentDraft,
+                        onUpdatePlan = syncFinishController::updateOpenedPlan,
+                        onSavePlanAsCopy = syncFinishController::saveCurrentDraftAsCopy,
                     )
                 } else {
                     SyncFinishRunningScreen(
                         state = syncFinishState,
-                        onIntent = onSyncFinishIntent,
+                        onIntent = { intent ->
+                            if (intent == SyncFinishIntent.Reset) {
+                                syncFinishController.newPlan()
+                            } else {
+                                onSyncFinishIntent(intent)
+                            }
+                        },
                     )
                 }
             }
@@ -95,5 +135,6 @@ fun App(
 private enum class AppScreen {
     Timer,
     Settings,
-    SyncFinish,
+    SyncFinishLibrary,
+    SyncFinishEditor,
 }

@@ -91,4 +91,28 @@ class SyncFinishReducerTest {
         assertEquals(listOf("a:start", "b:start"), started.state.currentCues.map { it.id })
         assertEquals("Start A\nStart B", started.state.currentInstruction)
     }
+
+    @Test
+    fun savedPlanCanReplaceDraftButNotRunningPlan() {
+        val replacement = listOf(
+            CookingComponent("x", "X", 7.minutes),
+            CookingComponent("y", "Y", 9.minutes),
+        )
+        val replaced = SyncFinishReducer.reduce(
+            plan,
+            SyncFinishIntent.ReplaceDraft(replacement, 12.minutes),
+            0L,
+        )
+
+        assertEquals(replacement, replaced.state.components)
+        assertEquals(12.minutes, replaced.state.serveAfter)
+
+        val running = SyncFinishReducer.reduce(replaced.state, SyncFinishIntent.Start, 0L).state
+        val ignored = SyncFinishReducer.reduce(
+            running,
+            SyncFinishIntent.ReplaceDraft(plan.components, 20.minutes),
+            1L,
+        )
+        assertEquals(running, ignored.state)
+    }
 }

@@ -6,6 +6,7 @@ import com.maxim.kitchentimer.platform.AndroidAppLifecycleObserver
 import com.maxim.kitchentimer.platform.TimerController
 import com.maxim.kitchentimer.platform.createAndroidTimerPlatformServices
 import com.maxim.kitchentimer.syncfinish.SyncFinishController
+import com.maxim.kitchentimer.syncfinish.persistence.AndroidCookingPlanPersistence
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -15,6 +16,7 @@ class AndroidTimerViewModel(application: Application) : AndroidViewModel(applica
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val appLifecycle = AndroidAppLifecycleObserver()
     private val services = createAndroidTimerPlatformServices(application, appLifecycle)
+    private val plansPersistence = AndroidCookingPlanPersistence(application)
     val controller = TimerController(
         services = services,
         coroutineScope = scope,
@@ -22,6 +24,7 @@ class AndroidTimerViewModel(application: Application) : AndroidViewModel(applica
     val syncFinishController = SyncFinishController(
         services = services,
         coroutineScope = scope,
+        plansRepository = plansPersistence.repository,
     )
 
     var notificationPermissionRequested: Boolean = false
@@ -34,6 +37,7 @@ class AndroidTimerViewModel(application: Application) : AndroidViewModel(applica
     override fun onCleared() {
         syncFinishController.close()
         controller.close()
+        plansPersistence.close()
         scope.cancel()
     }
 }

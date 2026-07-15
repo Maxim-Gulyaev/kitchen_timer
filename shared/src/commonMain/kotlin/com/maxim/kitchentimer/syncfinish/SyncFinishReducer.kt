@@ -49,6 +49,17 @@ object SyncFinishReducer {
                 copy(serveAfter = intent.duration.normalizedNonNegative())
             }
 
+            is SyncFinishIntent.ReplaceDraft -> edit(state) {
+                copy(
+                    components = intent.components,
+                    serveAfter = intent.serveAfter.normalizedNonNegative(),
+                    cues = emptyList(),
+                    elapsed = ZERO,
+                    emittedCueIds = emptySet(),
+                    currentCues = emptyList(),
+                )
+            }
+
             SyncFinishIntent.UseMinimumServeTime -> edit(state) {
                 copy(serveAfter = SyncFinishScheduler.minimumServeAfter(components))
             }

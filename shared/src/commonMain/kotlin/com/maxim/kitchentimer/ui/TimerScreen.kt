@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContentPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -31,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import com.maxim.kitchentimer.timer.TimerIntent
 import com.maxim.kitchentimer.timer.TimerPresets
@@ -50,6 +53,7 @@ import kotlin.time.Duration.Companion.seconds
 fun TimerScreen(
     state: TimerState,
     onIntent: (TimerIntent) -> Unit,
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Surface(modifier = modifier.fillMaxSize()) {
@@ -90,11 +94,26 @@ fun TimerScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(sectionSpacing),
             ) {
-                Text(
-                    text = "Kitchen Timer",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Kitchen Timer",
+                        modifier = Modifier.align(Alignment.Center),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .size(48.dp)
+                            .semantics { contentDescription = "Open settings" },
+                    ) {
+                        Text(
+                            text = "⚙",
+                            fontSize = 24.sp,
+                        )
+                    }
+                }
 
                 TimerStatusBadge(status = state.status)
 

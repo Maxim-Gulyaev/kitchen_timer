@@ -66,7 +66,7 @@ class IosTimerSoundPlayer : TimerSoundPlayer {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var playbackJob: Job? = null
 
-    override fun playCompletion() {
+    override fun playCompletion(soundReference: String?) {
         stop()
         playbackJob = scope.launch {
             repeat(COMPLETION_SOUND_REPETITIONS) {
@@ -74,6 +74,11 @@ class IosTimerSoundPlayer : TimerSoundPlayer {
                 delay(COMPLETION_SOUND_INTERVAL_MILLIS)
             }
         }
+    }
+
+    override fun preview(soundReference: String?) {
+        stop()
+        AudioServicesPlaySystemSound(COMPLETION_SYSTEM_SOUND_ID)
     }
 
     override fun stop() {
@@ -105,7 +110,7 @@ class IosTimerHaptics : TimerHaptics {
 class IosTimerNotifier(
     private val center: UNUserNotificationCenter = UNUserNotificationCenter.currentNotificationCenter(),
 ) : TimerNotifier {
-    override fun scheduleCompletion(after: Duration) {
+    override fun scheduleCompletion(after: Duration, soundReference: String?) {
         cancelCompletion()
         center.requestAuthorizationWithOptions(
             options = UNAuthorizationOptionAlert or UNAuthorizationOptionSound,

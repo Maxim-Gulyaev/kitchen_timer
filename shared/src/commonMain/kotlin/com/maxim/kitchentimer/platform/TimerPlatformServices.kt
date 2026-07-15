@@ -1,5 +1,7 @@
 package com.maxim.kitchentimer.platform
 
+import com.maxim.kitchentimer.settings.InMemoryTimerSoundSettings
+import com.maxim.kitchentimer.settings.TimerSoundSettings
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,7 +14,10 @@ fun interface MonotonicClock {
 
 interface TimerSoundPlayer {
     /** Starts bounded completion playback. Repeated calls replace the current playback. */
-    fun playCompletion()
+    fun playCompletion(soundReference: String?)
+
+    /** Plays a short sample of the selected sound. Repeated calls replace the current playback. */
+    fun preview(soundReference: String?)
 
     /** Stops playback. Must be idempotent and safe when nothing is playing. */
     fun stop()
@@ -24,7 +29,7 @@ fun interface TimerHaptics {
 
 interface TimerNotifier {
     /** Schedules one completion alert and replaces any previously scheduled alert. */
-    fun scheduleCompletion(after: Duration)
+    fun scheduleCompletion(after: Duration, soundReference: String?)
 
     /** Cancels the single scheduled alert. Must be idempotent. */
     fun cancelCompletion()
@@ -41,7 +46,8 @@ class DefaultMonotonicClock : MonotonicClock {
 }
 
 object NoOpTimerSoundPlayer : TimerSoundPlayer {
-    override fun playCompletion() = Unit
+    override fun playCompletion(soundReference: String?) = Unit
+    override fun preview(soundReference: String?) = Unit
     override fun stop() = Unit
 }
 
@@ -50,7 +56,7 @@ object NoOpTimerHaptics : TimerHaptics {
 }
 
 object NoOpTimerNotifier : TimerNotifier {
-    override fun scheduleCompletion(after: Duration) = Unit
+    override fun scheduleCompletion(after: Duration, soundReference: String?) = Unit
     override fun cancelCompletion() = Unit
 }
 
@@ -69,4 +75,5 @@ data class TimerPlatformServices(
     val haptics: TimerHaptics = NoOpTimerHaptics,
     val notifier: TimerNotifier = NoOpTimerNotifier,
     val lifecycle: AppLifecycleObserver = AlwaysForegroundLifecycleObserver,
+    val soundSettings: TimerSoundSettings = InMemoryTimerSoundSettings(),
 )

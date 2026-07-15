@@ -11,6 +11,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -28,6 +29,7 @@ class TimerCoordinator(
     private var closed = false
     private var scheduledDeadlineMillis: Long? = null
     private var notificationScheduledAtMillis: Long? = null
+    private var scheduledSoundReference: String? = null
 
     val state: StateFlow<TimerState> = store.state
 
@@ -47,6 +49,15 @@ class TimerCoordinator(
                     if (isForeground == lastForeground) return@collect
                     lastForeground = isForeground
                     handleLifecycleChange(isForeground)
+                }
+        }
+        scope.launch {
+            services.soundSettings.selectedSound
+                .drop(1)
+                .collect {
+                    if (store.state.value.status == TimerStatus.Running) {
+                        scheduleCompletionAtDeadline(store.state.value)
+                    }
                 }
         }
     }
@@ -86,7 +97,11 @@ class TimerCoordinator(
         when (event) {
             TimerEvent.Completed -> {
                 if (services.lifecycle.isForeground.value) {
-                    safely(services.soundPlayer::playCompletion)
+                    safely {
+                        services.soundPlayer.playCompletion(
+                            services.soundSettings.selectedSound.value.reference,
+                        )
+                    }
                     safely(services.haptics::performCompletion)
                 }
             }
@@ -111,17 +126,22 @@ class TimerCoordinator(
         if (state.status != TimerStatus.Running) return
         val deadlineMillis = requireNotNull(state.deadlineMillis)
         val nowMillis = services.clock.nowMillis()
+        val soundReference = services.soundSettings.selectedSound.value.reference
         if (
             scheduledDeadlineMillis == deadlineMillis &&
-            notificationScheduledAtMillis == nowMillis
+            notificationScheduledAtMillis == nowMillis &&
+            scheduledSoundReference == soundReference
         ) {
             return
         }
         val remainingMillis = (deadlineMillis - nowMillis).coerceAtLeast(0L)
-        runCatching { services.notifier.scheduleCompletion(remainingMillis.milliseconds) }
+        runCatching {
+            services.notifier.scheduleCompletion(remainingMillis.milliseconds, soundReference)
+        }
             .onSuccess {
                 scheduledDeadlineMillis = deadlineMillis
                 notificationScheduledAtMillis = nowMillis
+                scheduledSoundReference = soundReference
             }
     }
 
@@ -129,6 +149,7 @@ class TimerCoordinator(
         safely(services.notifier::cancelCompletion)
         scheduledDeadlineMillis = null
         notificationScheduledAtMillis = null
+        scheduledSoundReference = null
     }
 
     private inline fun safely(effect: () -> Unit) {

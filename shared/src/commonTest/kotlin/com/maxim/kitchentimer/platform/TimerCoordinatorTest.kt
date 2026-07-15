@@ -1,5 +1,7 @@
 package com.maxim.kitchentimer.platform
 
+import com.maxim.kitchentimer.settings.InMemoryTimerSoundSettings
+import com.maxim.kitchentimer.settings.TimerSoundSetting
 import com.maxim.kitchentimer.timer.TimerIntent
 import com.maxim.kitchentimer.timer.TimerState
 import com.maxim.kitchentimer.timer.TimerStatus
@@ -113,12 +115,19 @@ class TimerCoordinatorTest {
         val throwingServices = TimerPlatformServices(
             clock = clock,
             soundPlayer = object : TimerSoundPlayer {
-                override fun playCompletion(): Nothing = error("Sound unavailable")
+                override fun playCompletion(soundReference: String?): Nothing =
+                    error("Sound unavailable")
+
+                override fun preview(soundReference: String?): Nothing = error("Sound unavailable")
                 override fun stop(): Nothing = error("Sound unavailable")
             },
             haptics = TimerHaptics { error("Haptics unavailable") },
             notifier = object : TimerNotifier {
-                override fun scheduleCompletion(after: Duration): Nothing = error("Notifications unavailable")
+                override fun scheduleCompletion(
+                    after: Duration,
+                    soundReference: String?,
+                ): Nothing = error("Notifications unavailable")
+
                 override fun cancelCompletion(): Nothing = error("Notifications unavailable")
             },
         )
@@ -281,7 +290,10 @@ class TimerCoordinatorTest {
                 soundPlayer = sound,
                 haptics = haptics,
                 notifier = object : TimerNotifier {
-                    override fun scheduleCompletion(after: Duration): Nothing =
+                    override fun scheduleCompletion(
+                        after: Duration,
+                        soundReference: String?,
+                    ): Nothing =
                         error("Notification permission denied")
 
                     override fun cancelCompletion(): Nothing =
@@ -349,9 +361,46 @@ class TimerCoordinatorTest {
         harness.store.close()
     }
 
+    @Test
+    fun selectedSoundIsUsedForNotificationsAndForegroundCompletion() = runTest {
+        val initialSound = TimerSoundSetting(
+            reference = "content://sounds/first",
+            displayName = "First",
+            isDefault = false,
+        )
+        val harness = harness(
+            initialState = TimerState(initialDuration = 1.seconds),
+            initialSound = initialSound,
+        )
+        harness.coordinator.dispatch(TimerIntent.Start)
+        runCurrent()
+
+        harness.soundSettings.saveSelection(
+            TimerSoundSetting(
+                reference = "content://sounds/second",
+                displayName = "Second",
+                isDefault = false,
+            ),
+        )
+        runCurrent()
+
+        assertEquals(
+            listOf<String?>("content://sounds/first", "content://sounds/second"),
+            harness.notifier.scheduledSoundReferences,
+        )
+
+        harness.clock.advanceBy(1.seconds)
+        harness.ticker.tick()
+        runCurrent()
+
+        assertEquals(listOf<String?>("content://sounds/second"), harness.sound.playedReferences)
+        harness.close()
+    }
+
     private fun TestScope.harness(
         initialState: TimerState,
         isForeground: Boolean = true,
+        initialSound: TimerSoundSetting = TimerSoundSetting(),
     ): CoordinatorHarness {
         val clock = FakeClock()
         val ticker = ManualTicker()
@@ -359,13 +408,31 @@ class TimerCoordinatorTest {
         val haptics = RecordingHaptics()
         val notifier = RecordingNotifier()
         val lifecycle = FakeLifecycleObserver(isForeground)
+        val soundSettings = InMemoryTimerSoundSettings(initialSound, canChooseSound = true)
         val store = TimerStore(clock, ticker, backgroundScope, initialState)
         val coordinator = TimerCoordinator(
             store = store,
-            services = TimerPlatformServices(clock, sound, haptics, notifier, lifecycle),
+            services = TimerPlatformServices(
+                clock = clock,
+                soundPlayer = sound,
+                haptics = haptics,
+                notifier = notifier,
+                lifecycle = lifecycle,
+                soundSettings = soundSettings,
+            ),
             coroutineScope = backgroundScope,
         )
-        return CoordinatorHarness(store, coordinator, clock, ticker, sound, haptics, notifier, lifecycle)
+        return CoordinatorHarness(
+            store,
+            coordinator,
+            clock,
+            ticker,
+            sound,
+            haptics,
+            notifier,
+            lifecycle,
+            soundSettings,
+        )
     }
 }
 
@@ -387,6 +454,7 @@ private data class CoordinatorHarness(
     val haptics: RecordingHaptics,
     val notifier: RecordingNotifier,
     val lifecycle: FakeLifecycleObserver,
+    val soundSettings: InMemoryTimerSoundSettings,
 ) {
     fun close() {
         coordinator.close()
@@ -419,10 +487,14 @@ private class ManualTicker : TimerTicker {
 private class RecordingSoundPlayer : TimerSoundPlayer {
     var playCount = 0
     var stopCount = 0
+    val playedReferences = mutableListOf<String?>()
 
-    override fun playCompletion() {
+    override fun playCompletion(soundReference: String?) {
         playCount += 1
+        playedReferences += soundReference
     }
+
+    override fun preview(soundReference: String?) = Unit
 
     override fun stop() {
         stopCount += 1
@@ -439,10 +511,12 @@ private class RecordingHaptics : TimerHaptics {
 
 private class RecordingNotifier : TimerNotifier {
     val scheduledAfter = mutableListOf<Duration>()
+    val scheduledSoundReferences = mutableListOf<String?>()
     var cancelCount = 0
 
-    override fun scheduleCompletion(after: Duration) {
+    override fun scheduleCompletion(after: Duration, soundReference: String?) {
         scheduledAfter += after
+        scheduledSoundReferences += soundReference
     }
 
     override fun cancelCompletion() {

@@ -74,6 +74,34 @@ data class TimerPlatformServices(
     val soundPlayer: TimerSoundPlayer = NoOpTimerSoundPlayer,
     val haptics: TimerHaptics = NoOpTimerHaptics,
     val notifier: TimerNotifier = NoOpTimerNotifier,
+    val cookingPlanNotifier: CookingPlanNotifier = NoOpCookingPlanNotifier,
     val lifecycle: AppLifecycleObserver = AlwaysForegroundLifecycleObserver,
     val soundSettings: TimerSoundSettings = InMemoryTimerSoundSettings(),
 )
+
+data class ScheduledCookingCue(
+    val id: String,
+    val delay: Duration,
+    val title: String,
+    val message: String,
+)
+
+interface CookingPlanNotifier {
+    fun schedulePlan(
+        planId: String,
+        cues: List<ScheduledCookingCue>,
+        soundReference: String?,
+    )
+
+    fun cancelPlan(planId: String)
+}
+
+object NoOpCookingPlanNotifier : CookingPlanNotifier {
+    override fun schedulePlan(
+        planId: String,
+        cues: List<ScheduledCookingCue>,
+        soundReference: String?,
+    ) = Unit
+
+    override fun cancelPlan(planId: String) = Unit
+}

@@ -17,6 +17,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import android.content.pm.PackageManager
 import com.maxim.kitchentimer.timer.TimerIntent
 import com.maxim.kitchentimer.settings.TimerSoundSetting
+import com.maxim.kitchentimer.syncfinish.SyncFinishIntent
 
 class MainActivity : ComponentActivity() {
     private val timerViewModel: AndroidTimerViewModel by viewModels()
@@ -48,7 +49,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             App(
                 controller = timerViewModel.controller,
+                syncFinishController = timerViewModel.syncFinishController,
                 onIntent = ::dispatchTimerIntent,
+                onSyncFinishIntent = ::dispatchSyncFinishIntent,
                 onChooseTimerSound = ::openTimerSoundPicker,
             )
         }
@@ -85,6 +88,13 @@ class MainActivity : ComponentActivity() {
             requestNotificationPermissionIfNeeded()
         }
         timerViewModel.controller.dispatch(intent)
+    }
+
+    private fun dispatchSyncFinishIntent(intent: SyncFinishIntent) {
+        if (intent == SyncFinishIntent.Start) {
+            requestNotificationPermissionIfNeeded()
+        }
+        timerViewModel.syncFinishController.dispatch(intent)
     }
 
     private fun openTimerSoundPicker() {

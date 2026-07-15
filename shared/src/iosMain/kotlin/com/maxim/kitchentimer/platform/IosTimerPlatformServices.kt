@@ -140,11 +140,60 @@ class IosTimerNotifier(
     }
 }
 
+@OptIn(ExperimentalForeignApi::class)
+class IosCookingPlanNotifier(
+    private val center: UNUserNotificationCenter = UNUserNotificationCenter.currentNotificationCenter(),
+) : CookingPlanNotifier {
+    private val identifiersByPlan = mutableMapOf<String, List<String>>()
+
+    override fun schedulePlan(
+        planId: String,
+        cues: List<ScheduledCookingCue>,
+        soundReference: String?,
+    ) {
+        cancelPlan(planId)
+        if (cues.isEmpty()) return
+        center.requestAuthorizationWithOptions(
+            options = UNAuthorizationOptionAlert or UNAuthorizationOptionSound,
+        ) { _, _ -> }
+
+        val identifiers = cues.map { cue ->
+            val identifier = "$COOKING_PLAN_NOTIFICATION_PREFIX:$planId:${cue.id}"
+            val content = UNMutableNotificationContent().apply {
+                setTitle(cue.title)
+                setBody(cue.message)
+                setSound(UNNotificationSound.defaultSound)
+            }
+            val trigger = UNTimeIntervalNotificationTrigger.triggerWithTimeInterval(
+                timeInterval = max(
+                    MIN_NOTIFICATION_DELAY_SECONDS,
+                    cue.delay.inWholeMilliseconds / MILLIS_PER_SECOND,
+                ),
+                repeats = false,
+            )
+            center.addNotificationRequest(
+                UNNotificationRequest.requestWithIdentifier(identifier, content, trigger),
+                withCompletionHandler = null,
+            )
+            identifier
+        }
+        identifiersByPlan[planId] = identifiers
+    }
+
+    override fun cancelPlan(planId: String) {
+        val identifiers = identifiersByPlan.remove(planId).orEmpty()
+        if (identifiers.isEmpty()) return
+        center.removePendingNotificationRequestsWithIdentifiers(identifiers)
+        center.removeDeliveredNotificationsWithIdentifiers(identifiers)
+    }
+}
+
 fun createIosTimerPlatformServices(): TimerPlatformServices = TimerPlatformServices(
     clock = IosMonotonicClock(),
     soundPlayer = IosTimerSoundPlayer(),
     haptics = IosTimerHaptics(),
     notifier = IosTimerNotifier(),
+    cookingPlanNotifier = IosCookingPlanNotifier(),
     lifecycle = IosAppLifecycleObserver(),
 )
 
@@ -154,3 +203,4 @@ private const val COMPLETION_SYSTEM_SOUND_ID = 1_005u
 private const val COMPLETION_SOUND_REPETITIONS = 15
 private const val COMPLETION_SOUND_INTERVAL_MILLIS = 2_000L
 private const val TIMER_NOTIFICATION_ID = "kitchen-timer-completion"
+private const val COOKING_PLAN_NOTIFICATION_PREFIX = "kitchen-timer-cooking-plan"

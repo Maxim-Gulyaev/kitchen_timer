@@ -12,8 +12,13 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.maxim.kitchentimer.platform.TimerController
 import com.maxim.kitchentimer.platform.TimerPlatformServices
 import com.maxim.kitchentimer.timer.TimerIntent
+import com.maxim.kitchentimer.syncfinish.SyncFinishController
+import com.maxim.kitchentimer.syncfinish.SyncFinishIntent
+import com.maxim.kitchentimer.syncfinish.SyncFinishStatus
 import com.maxim.kitchentimer.ui.TimerScreen
 import com.maxim.kitchentimer.ui.SettingsScreen
+import com.maxim.kitchentimer.ui.syncfinish.SyncFinishEditorScreen
+import com.maxim.kitchentimer.ui.syncfinish.SyncFinishRunningScreen
 import com.maxim.kitchentimer.ui.theme.KitchenTimerTheme
 
 @Composable
@@ -23,23 +28,32 @@ fun App(platformServices: TimerPlatformServices? = null) {
     val services = remember(platformServices) {
         platformServices ?: TimerPlatformServices()
     }
-    val controller = remember(scope, services) {
+    val timerController = remember(scope, services) {
         TimerController(services, scope)
     }
-    DisposableEffect(controller) {
-        onDispose(controller::close)
+    val syncFinishController = remember(scope, services) {
+        SyncFinishController(services, scope)
     }
-    App(controller)
+    DisposableEffect(timerController, syncFinishController) {
+        onDispose {
+            syncFinishController.close()
+            timerController.close()
+        }
+    }
+    App(timerController, syncFinishController)
 }
 
 @Composable
 fun App(
     controller: TimerController,
+    syncFinishController: SyncFinishController,
     onIntent: (TimerIntent) -> Unit = { controller.dispatch(it) },
+    onSyncFinishIntent: (SyncFinishIntent) -> Unit = { syncFinishController.dispatch(it) },
     onChooseTimerSound: () -> Unit = {},
 ) {
     KitchenTimerTheme {
         val state by controller.state.collectAsState()
+        val syncFinishState by syncFinishController.state.collectAsState()
         val selectedSound by controller.selectedSound.collectAsState()
         var currentScreen by remember { mutableStateOf(AppScreen.Timer) }
 
@@ -48,6 +62,7 @@ fun App(
                 state = state,
                 onIntent = onIntent,
                 onOpenSettings = { currentScreen = AppScreen.Settings },
+                onOpenSyncFinish = { currentScreen = AppScreen.SyncFinish },
             )
 
             AppScreen.Settings -> SettingsScreen(
@@ -58,6 +73,21 @@ fun App(
                 onPreviewSound = controller::previewSelectedSound,
                 onStopPreview = controller::stopSoundPreview,
             )
+
+            AppScreen.SyncFinish -> {
+                if (syncFinishState.status == SyncFinishStatus.Draft) {
+                    SyncFinishEditorScreen(
+                        state = syncFinishState,
+                        onIntent = onSyncFinishIntent,
+                        onBack = { currentScreen = AppScreen.Timer },
+                    )
+                } else {
+                    SyncFinishRunningScreen(
+                        state = syncFinishState,
+                        onIntent = onSyncFinishIntent,
+                    )
+                }
+            }
         }
     }
 }
@@ -65,4 +95,5 @@ fun App(
 private enum class AppScreen {
     Timer,
     Settings,
+    SyncFinish,
 }

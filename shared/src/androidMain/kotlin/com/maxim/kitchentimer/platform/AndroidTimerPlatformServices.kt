@@ -190,29 +190,7 @@ class AndroidTimerNotifier(context: Context) : TimerNotifier {
         val alarmIntent = timerAlarmPendingIntent(appContext, soundReference)
         ensureTimerNotificationChannel(appContext, soundReference)
         alarmManager.cancel(alarmIntent)
-        val canScheduleExact =
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
-
-        if (canScheduleExact) {
-            try {
-                alarmManager.setExactAndAllowWhileIdle(
-                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                    triggerAt,
-                    alarmIntent,
-                )
-                return
-            } catch (_: SecurityException) {
-                // Exact alarm access can be revoked between the capability check and scheduling.
-            }
-        }
-
-        runCatching {
-            alarmManager.setAndAllowWhileIdle(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                triggerAt,
-                alarmIntent,
-            )
-        }
+        scheduleElapsedAlarm(alarmManager, triggerAt, alarmIntent)
     }
 
     override fun cancelCompletion() {
@@ -221,9 +199,53 @@ class AndroidTimerNotifier(context: Context) : TimerNotifier {
     }
 }
 
+class AndroidCookingPlanNotifier(context: Context) : CookingPlanNotifier {
+    private val appContext = context.applicationContext
+    private val alarmManager = appContext.getSystemService(AlarmManager::class.java)
+    private val scheduledCueIds = mutableMapOf<String, List<String>>()
+
+    override fun schedulePlan(
+        planId: String,
+        cues: List<ScheduledCookingCue>,
+        soundReference: String?,
+    ) {
+        cancelPlan(planId)
+        if (cues.isEmpty()) return
+        ensureTimerNotificationChannel(appContext, soundReference)
+        cues.forEach { cue ->
+            val pendingIntent = cookingCuePendingIntent(
+                context = appContext,
+                planId = planId,
+                cue = cue,
+                soundReference = soundReference,
+            )
+            val triggerAt = SystemClock.elapsedRealtime() +
+                cue.delay.inWholeMilliseconds.coerceAtLeast(0L)
+            scheduleElapsedAlarm(alarmManager, triggerAt, pendingIntent)
+        }
+        scheduledCueIds[planId] = cues.map(ScheduledCookingCue::id)
+    }
+
+    override fun cancelPlan(planId: String) {
+        val notificationManager = appContext.getSystemService(NotificationManager::class.java)
+        scheduledCueIds.remove(planId).orEmpty().forEach { cueId ->
+            val requestCode = cookingCueRequestCode(planId, cueId)
+            val pendingIntent = cookingCuePendingIntent(
+                context = appContext,
+                planId = planId,
+                cueId = cueId,
+            )
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
+            notificationManager.cancel(requestCode)
+        }
+    }
+}
+
 class TimerAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
-        if (intent?.action != ACTION_TIMER_COMPLETED) return
+        val alarmIntent = intent ?: return
+        if (alarmIntent.action !in setOf(ACTION_TIMER_COMPLETED, ACTION_COOKING_CUE)) return
         runCatching {
             if (AndroidAppLifecycleObserver.isAppInForeground) return@runCatching
             if (
@@ -234,7 +256,7 @@ class TimerAlarmReceiver : BroadcastReceiver() {
                 return@runCatching
             }
 
-            val soundReference = intent.getStringExtra(EXTRA_SOUND_REFERENCE)
+            val soundReference = alarmIntent.getStringExtra(EXTRA_SOUND_REFERENCE)
             val channelId = ensureTimerNotificationChannel(context, soundReference)
             val notificationManager = context.getSystemService(NotificationManager::class.java)
             if (!notificationManager.areNotificationsEnabled()) return@runCatching
@@ -250,13 +272,20 @@ class TimerAlarmReceiver : BroadcastReceiver() {
             }
             val notification = Notification.Builder(context, channelId)
                 .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                .setContentTitle("Kitchen timer finished")
-                .setContentText("Time is up")
+                .setContentTitle(
+                    alarmIntent.getStringExtra(EXTRA_NOTIFICATION_TITLE) ?: "Kitchen timer finished",
+                )
+                .setContentText(
+                    alarmIntent.getStringExtra(EXTRA_NOTIFICATION_MESSAGE) ?: "Time is up",
+                )
                 .setCategory(Notification.CATEGORY_ALARM)
                 .setAutoCancel(true)
                 .setContentIntent(contentIntent)
                 .build()
-            notificationManager.notify(NOTIFICATION_ID, notification)
+            notificationManager.notify(
+                alarmIntent.getIntExtra(EXTRA_NOTIFICATION_ID, NOTIFICATION_ID),
+                notification,
+            )
         }
     }
 }
@@ -269,6 +298,7 @@ fun createAndroidTimerPlatformServices(
     soundPlayer = AndroidTimerSoundPlayer(context),
     haptics = AndroidTimerHaptics(context),
     notifier = AndroidTimerNotifier(context),
+    cookingPlanNotifier = AndroidCookingPlanNotifier(context),
     lifecycle = lifecycle,
     soundSettings = AndroidTimerSoundSettings(context),
 )
@@ -317,6 +347,80 @@ private fun timerAlarmPendingIntent(
     )
 }
 
+private fun cookingCuePendingIntent(
+    context: Context,
+    planId: String,
+    cue: ScheduledCookingCue,
+    soundReference: String?,
+): PendingIntent {
+    val requestCode = cookingCueRequestCode(planId, cue.id)
+    val intent = Intent(context, TimerAlarmReceiver::class.java)
+        .setAction(ACTION_COOKING_CUE)
+        .putExtra(EXTRA_PLAN_ID, planId)
+        .putExtra(EXTRA_CUE_ID, cue.id)
+        .putExtra(EXTRA_NOTIFICATION_ID, requestCode)
+        .putExtra(EXTRA_NOTIFICATION_TITLE, cue.title)
+        .putExtra(EXTRA_NOTIFICATION_MESSAGE, cue.message)
+        .apply { soundReference?.let { putExtra(EXTRA_SOUND_REFERENCE, it) } }
+    return PendingIntent.getBroadcast(
+        context,
+        requestCode,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+}
+
+private fun cookingCuePendingIntent(
+    context: Context,
+    planId: String,
+    cueId: String,
+): PendingIntent {
+    val requestCode = cookingCueRequestCode(planId, cueId)
+    val intent = Intent(context, TimerAlarmReceiver::class.java)
+        .setAction(ACTION_COOKING_CUE)
+        .putExtra(EXTRA_PLAN_ID, planId)
+        .putExtra(EXTRA_CUE_ID, cueId)
+    return PendingIntent.getBroadcast(
+        context,
+        requestCode,
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+}
+
+private fun cookingCueRequestCode(planId: String, cueId: String): Int =
+    (("$planId:$cueId".hashCode() and Int.MAX_VALUE).coerceAtLeast(1))
+
+private fun scheduleElapsedAlarm(
+    alarmManager: AlarmManager,
+    triggerAt: Long,
+    pendingIntent: PendingIntent,
+) {
+    val canScheduleExact =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarmManager.canScheduleExactAlarms()
+
+    if (canScheduleExact) {
+        try {
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                triggerAt,
+                pendingIntent,
+            )
+            return
+        } catch (_: SecurityException) {
+            // Exact alarm access can be revoked between capability check and scheduling.
+        }
+    }
+
+    runCatching {
+        alarmManager.setAndAllowWhileIdle(
+            AlarmManager.ELAPSED_REALTIME_WAKEUP,
+            triggerAt,
+            pendingIntent,
+        )
+    }
+}
+
 private fun resolveTimerSoundUri(context: Context, soundReference: String?): Uri {
     val selectedUri = soundReference?.let(Uri::parse)
     if (selectedUri != null && isTimerSoundAvailable(context, selectedUri)) return selectedUri
@@ -341,7 +445,13 @@ private fun notificationChannelId(soundUri: Uri): String =
     NOTIFICATION_CHANNEL_PREFIX + soundUri.toString().hashCode().toUInt().toString(16)
 
 private const val ACTION_TIMER_COMPLETED = "com.maxim.kitchentimer.action.TIMER_COMPLETED"
+private const val ACTION_COOKING_CUE = "com.maxim.kitchentimer.action.COOKING_CUE"
 private const val EXTRA_SOUND_REFERENCE = "timer_sound_reference"
+private const val EXTRA_PLAN_ID = "cooking_plan_id"
+private const val EXTRA_CUE_ID = "cooking_cue_id"
+private const val EXTRA_NOTIFICATION_ID = "notification_id"
+private const val EXTRA_NOTIFICATION_TITLE = "notification_title"
+private const val EXTRA_NOTIFICATION_MESSAGE = "notification_message"
 private const val NOTIFICATION_CHANNEL_PREFIX = "timer_completion_"
 private const val LEGACY_NOTIFICATION_CHANNEL_ID = "timer_completion"
 private const val NOTIFICATION_ID = 1_001

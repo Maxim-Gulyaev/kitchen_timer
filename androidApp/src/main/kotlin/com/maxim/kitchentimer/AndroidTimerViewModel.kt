@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import com.maxim.kitchentimer.platform.AndroidAppLifecycleObserver
 import com.maxim.kitchentimer.platform.TimerController
 import com.maxim.kitchentimer.platform.createAndroidTimerPlatformServices
+import com.maxim.kitchentimer.syncfinish.SyncFinishController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -13,8 +14,13 @@ import kotlinx.coroutines.cancel
 class AndroidTimerViewModel(application: Application) : AndroidViewModel(application) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val appLifecycle = AndroidAppLifecycleObserver()
+    private val services = createAndroidTimerPlatformServices(application, appLifecycle)
     val controller = TimerController(
-        services = createAndroidTimerPlatformServices(application, appLifecycle),
+        services = services,
+        coroutineScope = scope,
+    )
+    val syncFinishController = SyncFinishController(
+        services = services,
         coroutineScope = scope,
     )
 
@@ -26,6 +32,7 @@ class AndroidTimerViewModel(application: Application) : AndroidViewModel(applica
     }
 
     override fun onCleared() {
+        syncFinishController.close()
         controller.close()
         scope.cancel()
     }

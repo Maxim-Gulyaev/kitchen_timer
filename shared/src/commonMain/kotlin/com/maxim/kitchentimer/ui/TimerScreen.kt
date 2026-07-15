@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,6 +55,7 @@ fun TimerScreen(
     state: TimerState,
     onIntent: (TimerIntent) -> Unit,
     onOpenSettings: () -> Unit = {},
+    onOpenSyncFinish: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Surface(modifier = modifier.fillMaxSize()) {
@@ -116,6 +118,13 @@ fun TimerScreen(
                 }
 
                 TimerStatusBadge(status = state.status)
+
+                FilledTonalButton(
+                    onClick = onOpenSyncFinish,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Sync Finish · coordinate a meal")
+                }
 
                 Box(
                     modifier = Modifier
